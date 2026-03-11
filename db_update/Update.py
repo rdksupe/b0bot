@@ -56,11 +56,21 @@ def update_database(overwrite=(len(sys.argv) > 1 and sys.argv[1] == '--overwrite
     print("Loading local sparse model (prithivida/Splade_PP_en_v2)...")
     sparse_model = SparseEncoder("prithivida/Splade_PP_en_v2")
     
+    # Track locally seen URLs to prevent processing duplicates across different sources
+    seen_urls = set()
     all_records = []
     for news_type, articles in newsBox.items():
         if not articles:
             continue
         for article in articles:
+            url = str(article.get("newsURL", "")).strip()
+            
+            # Simple cross-source deduplication of Article URLs
+            if url in seen_urls:
+                print(f"Skipping duplicate article by URL: {url}")
+                continue
+            seen_urls.add(url)
+
             headlines = article.get("headlines")
             full_news = article.get("fullNews")
             if not headlines or not full_news:
@@ -109,10 +119,14 @@ def update_database(overwrite=(len(sys.argv) > 1 and sys.argv[1] == '--overwrite
             except Exception as e:
                 print(f"Error processing article {article.get('id')}: {e}")
 
-    # Upsert all records in batch
+    # Upsert all records in batches of 100
     if all_records:
-        index.upsert(vectors=all_records, namespace=namespace)
-        print(f"Successfully upserted {len(all_records)} hybrid records into {index_name}")
+        batch_size = 100
+        for i in range(0, len(all_records), batch_size):
+            batch = all_records[i : i + batch_size]
+            index.upsert(vectors=batch, namespace=namespace)
+            print(f"Successfully upserted batch {i//batch_size + 1}: {len(batch)} hybrid records into {index_name}")
+        print(f"Finished upserting all {len(all_records)} hybrid records.")
 
 if __name__ == "__main__":
     update_database()
